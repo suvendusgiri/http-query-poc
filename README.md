@@ -110,4 +110,4 @@ Not yet, unless you're adding it alongside an existing POST endpoint. Some proxi
 
 ---
 
-Built by [Suvendu Giri](https://suvendugiri.com) — Fractional CTO
+Built by [Suvendu Giri](https://suvendugiri.com) — As Linkedin post companion
