@@ -1,89 +1,113 @@
-# HTTP QUERY Method — POC
-### RFC 10008 — Standardised June 2026
+# http-query-poc
 
-A practical demonstration of the new HTTP QUERY method alongside the two workarounds developers used before it existed.
+A small POC I built alongside a LinkedIn post about RFC 10008 — the new HTTP QUERY method standardised in June 2026.
+
+No npm install. No dependencies. Just Node.js.
 
 ---
 
-## The Problem
+## Why I built this
 
-Every API developer eventually hits this wall.
+Every API I've worked on eventually grows a `POST /search` endpoint. Not because POST is the right choice — but because GET can't carry a body, and complex filters stop fitting in a URL pretty fast.
 
-You need a search endpoint with complex filters — nested conditions, price ranges, multiple categories, sorting, pagination. You have two bad options:
+RFC 10008 fixes this properly. QUERY is safe and idempotent like GET, but carries a body like POST. CDNs can now cache it correctly.
 
-**Option 1: Stuff it in GET**
+I wanted to see it work, so I built this.
+
+---
+
+## The three approaches, side by side
+
+**GET** — fine for simple queries, breaks with anything complex
 ```
-GET /products?category=Electronics&category=Accessories&price_min=500&price_max=3000&inStock=true&minRating=4.0&sort=rating&order=desc&page=1&limit=5
+GET /products?category=Electronics&price_min=500&price_max=3000&inStock=true
 ```
-Works for simple filters. Breaks fast. URLs hit character limits. Nested objects become unreadable.
 
-**Option 2: Abuse POST**
-```http
+**POST /search** — what most teams end up doing, but semantically wrong
+```
 POST /products/search
-Content-Type: application/json
-
-{ "filter": { "category": [...], "price": {...} }, "sort": {...} }
+{ "filter": { "category": [...], "price": {...} } }
 ```
-Carries a body — great. But POST signals "this might change state". CDNs won't cache it. Retry logic is unsafe. Semantically wrong.
+CDNs treat POST as a potential mutation. No caching. Retry logic gets complicated.
 
-**Option 3: QUERY (RFC 10008)**
-```http
+**QUERY** — RFC 10008, June 2026
+```
 QUERY /products
-Content-Type: application/json
-
-{ "filter": { "category": [...], "price": {...} }, "sort": {...} }
+{ "filter": { "category": [...], "price": {...} } }
 ```
-Safe and idempotent like GET. Body support like POST. CDNs can cache it correctly.
+Same body as POST. Safe and idempotent like GET. Cache-Control header works correctly.
 
 ---
 
-## Run It
+## Run it
 
 ```bash
-# Start server (no dependencies — pure Node.js)
 node server.js
-
-# In another terminal, run all three approaches
-chmod +x test.sh
-./test.sh
 ```
 
+**Mac/Linux — test with:**
+```bash
+chmod +x test.sh && ./test.sh
+```
+
+**Windows — test with:**
+```powershell
+# Create filter file first
+[System.IO.File]::WriteAllText("$PWD\filter.json", '{"filter":{"category":["Electronics"],"price":{"min":500,"max":3000},"inStock":true},"sort":{"field":"rating","order":"desc"}}')
+
+# POST (old hack) — notice no Cache-Control in response
+curl.exe -X POST http://localhost:3000/products/search -H "Content-Type: application/json" --data-binary "@filter.json"
+
+# QUERY (RFC 10008) — notice Cache-Control: max-age=60 in response headers
+curl.exe -X QUERY http://localhost:3000/products -H "Content-Type: application/json" -D - --data-binary "@filter.json"
+```
+
+The `-D -` flag prints response headers — that's where you'll see the difference.
+
 ---
 
-## What You'll See
+## What to look for
 
-| Approach | Method | URL | Cacheable | Body | Idempotent |
-|---|---|---|---|---|---|
-| Simple fetch | GET | /products | ✅ | ❌ | ✅ |
-| Old hack | POST | /products/search | ❌ | ✅ | ❌ |
-| RFC 10008 | QUERY | /products | ✅ | ✅ | ✅ |
+POST response — no Cache-Control:
+```
+Content-Type: application/json
+Accept-Query: application/json
+```
+
+QUERY response — cacheable:
+```
+Content-Type: application/json
+Accept-Query: application/json
+Cache-Control: max-age=60, private
+```
+
+Same filter. Same result. Different protocol semantics.
 
 ---
 
-## Current Support (July 2026)
+## Support as of July 2026
 
-| Environment | Status |
+| | Status |
 |---|---|
-| Node.js (http module) | ✅ Native — parses QUERY like any custom method |
-| Express.js | ✅ via `app.use()` middleware (no native `app.query()` yet) |
-| curl | ✅ `-X QUERY` works |
-| .NET 10 | ✅ First-class support |
-| Spring (Java) | 🟡 PR open, not merged yet |
-| OpenAPI 3.2 | ✅ Can document it |
-| Browsers (fetch) | 🟡 Works but triggers CORS preflight |
-| CDN caching | 🟡 Cloudflare/Akamai (co-authored RFC) — support arriving |
+| Node.js | Native — parses QUERY without any config |
+| curl | Works with `-X QUERY` |
+| .NET 10 | First-class support |
+| Spring (Java) | PR open, not merged yet |
+| OpenAPI 3.2 | Can document it |
+| Browsers | Works, but triggers CORS preflight |
+| CDNs | Cloudflare and Akamai co-authored the RFC — support coming |
 
 ---
 
-## The Honest Take
+## Should you use this in production?
 
-Don't rush to production with QUERY today. Some proxies and corporate firewalls with method allowlists will reject it. A sensible rollout:
+Not yet, unless you're adding it alongside an existing POST endpoint. Some proxies and corporate firewalls with method allowlists will reject unfamiliar HTTP methods. Sensible approach:
 
-1. Keep your existing POST /search endpoint running
-2. Add QUERY /products alongside it
-3. Advertise support via `Accept-Query` response header
-4. Let clients migrate as their tooling catches up
+- Keep `POST /search` running
+- Add `QUERY /products` alongside it
+- Advertise support via the `Accept-Query` response header
+- Let clients migrate as tooling catches up
 
 ---
 
-*Built as a companion to a LinkedIn post by Suvendu Giri — suvendugiri.com*
+Built by [Suvendu Giri](https://suvendugiri.com) — Fractional CTO
